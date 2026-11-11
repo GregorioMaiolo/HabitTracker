@@ -1,44 +1,50 @@
-import { useState, useEffect } from 'react';
-import './App.css';
 
-function getDateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+import { useState, useEffect } from "react";
+import "./App.css";
 
-  return `${year}-${month}-${day}`;
+const categories = [
+  "Fitness",
+  "Gesundheit",
+  "Lernen",
+  "Produktivität",
+  "Sonstiges",
+];
+
+function getDateKey(date = new Date()) {
+  return date.toISOString().split("T")[0];
 }
 
 function getWeekDays() {
-  return Array.from({ length: 7 }, (_, index) => {
+  const days = [];
+
+  for (let i = 6; i >= 0; i--) {
     const date = new Date();
-    date.setDate(date.getDate() - (6 - index));
+    date.setDate(date.getDate() - i);
 
-    return {
+    days.push({
       key: getDateKey(date),
-      label: date.toLocaleDateString('de-CH', {
-        weekday: 'short'
+      label: date.toLocaleDateString("de-CH", {
+        weekday: "short",
       }),
-      day: date.getDate()
-    };
-  });
-}
-
-function calculateStreak(dates) {
-  const completed = new Set(dates);
-  const today = new Date();
-
-  // Falls heute noch nichts erledigt wurde,
-  // beginnt die Berechnung beim gestrigen Tag.
-  if (!completed.has(getDateKey(today))) {
-    today.setDate(today.getDate() - 1);
+    });
   }
 
-  let streak = 0;
+  return days;
+}
 
-  while (completed.has(getDateKey(today))) {
+function calculateStreak(habit) {
+  let streak = 0;
+  const date = new Date();
+
+  if (!habit.completedDates) return 0;
+
+  if (!habit.completedDates.includes(getDateKey(date))) {
+    date.setDate(date.getDate() - 1);
+  }
+
+  while (habit.completedDates.includes(getDateKey(date))) {
     streak++;
-    today.setDate(today.getDate() - 1);
+    date.setDate(date.getDate() - 1);
   }
 
   return streak;
@@ -46,21 +52,21 @@ function calculateStreak(dates) {
 
 function App() {
   const [habits, setHabits] = useState(() => {
-    const savedHabits = localStorage.getItem('habits');
-    return savedHabits ? JSON.parse(savedHabits) : [];
+    try {
+      return JSON.parse(localStorage.getItem("habits")) || [];
+    } catch {
+      return [];
+    }
   });
 
-  const [newHabit, setNewHabit] = useState('');
+  const [newHabit, setNewHabit] = useState("");
+  const [newCategory, setNewCategory] = useState("Fitness");
+  const [activePage, setActivePage] = useState("dashboard");
 
-  const today = getDateKey(new Date());
-  const weekDays = getWeekDays();
-
-  // Habits automatisch speichern
   useEffect(() => {
-    localStorage.setItem('habits', JSON.stringify(habits));
+    localStorage.setItem("habits", JSON.stringify(habits));
   }, [habits]);
 
-  // Neues Habit hinzufügen
   function addHabit(e) {
     e.preventDefault();
 
@@ -69,284 +75,365 @@ function App() {
     const habit = {
       id: Date.now(),
       name: newHabit.trim(),
-      completedDates: []
+      category: newCategory,
+      completedDates: [],
     };
 
     setHabits([...habits, habit]);
-    setNewHabit('');
+    setNewHabit("");
+    setNewCategory("Fitness");
   }
 
-  // Habit löschen
-  function deleteHabit(id) {
-    setHabits(habits.filter(habit => habit.id !== id));
-  }
-
-  // Habit als erledigt markieren
   function toggleHabit(id) {
-    setHabits(habits.map(habit => {
-      if (habit.id !== id) return habit;
+    const today = getDateKey();
 
-      const isCompleted = habit.completedDates.includes(today);
+    setHabits(
+      habits.map((habit) => {
+        if (habit.id !== id) return habit;
 
-      return {
-        ...habit,
-        completedDates: isCompleted
-          ? habit.completedDates.filter(date => date !== today)
-          : [...habit.completedDates, today]
-      };
-    }));
+        const completedDates = habit.completedDates || [];
+        const isCompleted = completedDates.includes(today);
+
+        return {
+          ...habit,
+          completedDates: isCompleted
+            ? completedDates.filter((date) => date !== today)
+            : [...completedDates, today],
+        };
+      })
+    );
   }
 
-  // Statistiken berechnen
-  const completedToday = habits.filter(habit =>
-    habit.completedDates.includes(today)
+  function deleteHabit(id) {
+    setHabits(habits.filter((habit) => habit.id !== id));
+  }
+
+  const today = getDateKey();
+
+  const completedToday = habits.filter((habit) =>
+    (habit.completedDates || []).includes(today)
   ).length;
 
-  const progress = habits.length > 0
-    ? Math.round((completedToday / habits.length) * 100)
-    : 0;
+  const progress =
+    habits.length > 0
+      ? Math.round((completedToday / habits.length) * 100)
+      : 0;
 
   const totalCompletions = habits.reduce(
-    (total, habit) => total + habit.completedDates.length,
+    (total, habit) =>
+      total + (habit.completedDates || []).length,
     0
   );
 
-  const longestStreak = habits.length > 0
-    ? Math.max(...habits.map(habit =>
-      calculateStreak(habit.completedDates)
-    ))
-    : 0;
+  const weekDays = getWeekDays();
 
-  const todayLabel = new Date().toLocaleDateString('de-CH', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long'
-  });
+  const weekData = weekDays.map((day) => ({
+    ...day,
+    count: habits.filter((habit) =>
+      (habit.completedDates || []).includes(day.key)
+    ).length,
+  }));
+
+  const maxWeekCount = Math.max(
+    ...weekData.map((day) => day.count),
+    1
+  );
 
   return (
     <div className="app">
-
       <aside className="sidebar">
-        <div className="logo">
-          <span className="logo-icon">H</span>
-          <span>HabitFlow</span>
-        </div>
+        <h2 className="logo">HabitFlow</h2>
 
-        <div className="nav-label">MENU</div>
+        <p className="nav-label">MENU</p>
 
-        <div className="nav-item active">
+        <button
+          className={`nav-item ${activePage === "dashboard" ? "active" : ""
+            }`}
+          onClick={() => setActivePage("dashboard")}
+        >
           <span>▦</span> Dashboard
-        </div>
+        </button>
 
-        <div className="nav-item">
-          <span>◷</span> My Habits
-        </div>
+        <button
+          className={`nav-item ${activePage === "habits" ? "active" : ""
+            }`}
+          onClick={() => setActivePage("habits")}
+        >
+          <span>✓</span> My Habits
+        </button>
 
         <div className="sidebar-bottom">
-          <div className="profile-avatar">U</div>
-          <div>
-            <strong>My Profile</strong>
-            <p>Personal account</p>
-          </div>
+          <p>Build better habits.</p>
+          <small>One day at a time.</small>
         </div>
       </aside>
 
       <main className="main-content">
-
-        <header className="topbar">
-          <div>
-            <h2>Dashboard</h2>
-            <p>{todayLabel}</p>
-          </div>
-
-          <div className="date-badge">
-            <span>●</span> Daily overview
-          </div>
-        </header>
-
-        <section className="welcome">
-          <div>
-            <p className="welcome-label">YOUR PERSONAL SPACE</p>
-            <h1>Build better habits.</h1>
-            <p>Small steps every day lead to big results.</p>
-          </div>
-
-          <div className="welcome-icon">✦</div>
-        </section>
-
-        <section className="stats-grid">
-
-          <div className="stat-card">
-            <div className="stat-icon purple">▦</div>
-            <p>Total Habits</p>
-            <h2>{habits.length}</h2>
-            <span>Active habits</span>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon green">✓</div>
-            <p>Completed Today</p>
-            <h2>{completedToday}/{habits.length}</h2>
-            <span>Daily progress</span>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon orange">🔥</div>
-            <p>Best Current Streak</p>
-            <h2>{longestStreak}</h2>
-            <span>Consecutive days</span>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon blue">↗</div>
-            <p>Total Completions</p>
-            <h2>{totalCompletions}</h2>
-            <span>All-time progress</span>
-          </div>
-
-        </section>
-
-        <section className="content-grid">
-
-          <div className="panel habits-panel">
-
-            <div className="panel-header">
+        {activePage === "dashboard" ? (
+          <>
+            <header className="page-header">
               <div>
-                <h2>My Habits</h2>
-                <p>Keep track of your daily routines.</p>
+                <h1>Dashboard</h1>
+                <p>Track your progress and build consistency.</p>
               </div>
 
-              <span className="habit-count">
-                {habits.length} habits
+              <span className="today-date">
+                {new Date().toLocaleDateString("de-CH", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
               </span>
-            </div>
+            </header>
 
-            <form className="add-form" onSubmit={addHabit}>
-              <input
-                type="text"
-                placeholder="Add a new habit..."
-                value={newHabit}
-                onChange={e => setNewHabit(e.target.value)}
-              />
-
-              <button type="submit">+ Add Habit</button>
-            </form>
-
-            <div className="habit-list">
-
-              {habits.length === 0 ? (
-                <div className="empty-state">
-                  <span>✦</span>
-                  <h3>No habits yet</h3>
-                  <p>Add your first habit to get started!</p>
-                </div>
-              ) : (
-                habits.map(habit => {
-                  const completed = habit.completedDates.includes(today);
-                  const streak = calculateStreak(habit.completedDates);
-
-                  return (
-                    <div className="habit-item" key={habit.id}>
-
-                      <button
-                        className={`check-button ${completed ? 'checked' : ''}`}
-                        onClick={() => toggleHabit(habit.id)}
-                        aria-label="Habit erledigen"
-                      >
-                        {completed ? '✓' : ''}
-                      </button>
-
-                      <div className="habit-info">
-                        <strong className={completed ? 'completed-text' : ''}>
-                          {habit.name}
-                        </strong>
-                        <span>🔥 {streak} day streak</span>
-                      </div>
-
-                      <div className="habit-actions">
-                        <span className={completed ? 'status-done' : 'status-pending'}>
-                          {completed ? 'Completed' : 'Pending'}
-                        </span>
-
-                        <button
-                          className="delete-button"
-                          onClick={() => deleteHabit(habit.id)}
-                          aria-label="Habit löschen"
-                        >
-                          ×
-                        </button>
-                      </div>
-
-                    </div>
-                  );
-                })
-              )}
-
-            </div>
-          </div>
-
-          <div className="panel progress-panel">
-
-            <div className="panel-header">
-              <div>
-                <h2>Today's Progress</h2>
-                <p>Your daily performance.</p>
+            <section className="stats-grid">
+              <div className="stat-card">
+                <span>Total Habits</span>
+                <h2>{habits.length}</h2>
               </div>
-            </div>
 
-            <div className="progress-circle" style={{ background: `conic-gradient(#8059e8 ${progress}%, #303044 ${progress}%)`}}>
-            <div className="progress-inner">
+              <div className="stat-card">
+                <span>Completed Today</span>
+                <h2>{completedToday}/{habits.length}</h2>
+              </div>
+
+              <div className="stat-card">
+                <span>Today's Progress</span>
                 <h2>{progress}%</h2>
-                <span>Completed</span>
               </div>
-            </div>
 
-            <p className="progress-description">
-              {completedToday} of {habits.length} habits completed today.
-            </p>
+              <div className="stat-card">
+                <span>Total Completions</span>
+                <h2>{totalCompletions}</h2>
+              </div>
+            </section>
 
-            <div className="week-section">
-              <h3>Last 7 Days</h3>
+            <section className="dashboard-grid">
+              <div className="panel habits-panel">
+                <div className="panel-header">
+                  <h2>My Habits</h2>
+                  <button
+                    className="text-button"
+                    onClick={() => setActivePage("habits")}
+                  >
+                    View all
+                  </button>
+                </div>
 
-              <div className="week-grid">
-                {weekDays.map(day => {
-                  const count = habits.filter(habit =>
-                    habit.completedDates.includes(day.key)
-                  ).length;
+                <HabitForm
+                  newHabit={newHabit}
+                  setNewHabit={setNewHabit}
+                  newCategory={newCategory}
+                  setNewCategory={setNewCategory}
+                  addHabit={addHabit}
+                />
 
-                  const percentage = habits.length > 0
-                    ? (count / habits.length) * 100
-                    : 0;
+                <HabitList
+                  habits={habits.slice(0, 4)}
+                  toggleHabit={toggleHabit}
+                  deleteHabit={deleteHabit}
+                />
+              </div>
 
-                  const isToday = day.key === today;
+              <ProgressPanel
+                progress={progress}
+                completedToday={completedToday}
+                totalHabits={habits.length}
+              />
+            </section>
+
+
+            <section className="panel weekly-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Weekly Activity</h2>
+                  <p className="weekly-subtitle">
+                    Your completed habits over the last 7 days
+                  </p>
+                </div>
+
+                <span className="weekly-total">
+                  {weekData.reduce((sum, day) => sum + day.count, 0)} completed
+                </span>
+              </div>
+
+              <div className="week-chart">
+                {weekData.map((day) => {
+                  const percentage =
+                    habits.length > 0
+                      ? (day.count / habits.length) * 100
+                      : 0;
 
                   return (
                     <div className="week-day" key={day.key}>
-                      <div className="week-bar">
-                        <div
-                          className="week-bar-fill"
-                          style={{ height: `${percentage}%` }}
-                        />
+                      <div className="week-day-info">
+                        <span>{day.label}</span>
+                        <strong>{day.count}</strong>
                       </div>
 
-                      <span className={isToday ? 'today-label' : ''}>
-                        {day.label}
-                      </span>
-                      <strong>{day.day}</strong>
+                      <div className="week-bar-background">
+                        <div
+                          className="week-bar-fill"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </section>
 
-          </div>
-        </section>
+          </>
+        ) : (
+          <>
+            <header className="page-header">
+              <div>
+                <h1>My Habits</h1>
+                <p>Manage your habits and their categories.</p>
+              </div>
+            </header>
+
+            <section className="panel all-habits-page">
+              <h2>Add a new habit</h2>
+
+              <HabitForm
+                newHabit={newHabit}
+                setNewHabit={setNewHabit}
+                newCategory={newCategory}
+                setNewCategory={setNewCategory}
+                addHabit={addHabit}
+              />
+
+              <div className="panel-header">
+                <h2>All Habits ({habits.length})</h2>
+              </div>
+
+              <HabitList
+                habits={habits}
+                toggleHabit={toggleHabit}
+                deleteHabit={deleteHabit}
+              />
+            </section>
+          </>
+        )}
 
         <footer>
-          MaioloCode © 2026 · Stay consistent.
+          HabitFlow © 2026
         </footer>
-
       </main>
+    </div>
+  );
+}
+
+function HabitForm({
+  newHabit,
+  setNewHabit,
+  newCategory,
+  setNewCategory,
+  addHabit,
+}) {
+  return (
+    <form className="habit-form" onSubmit={addHabit}>
+      <input
+        type="text"
+        placeholder="Enter a new habit..."
+        value={newHabit}
+        onChange={(e) => setNewHabit(e.target.value)}
+      />
+
+      <select
+        value={newCategory}
+        onChange={(e) => setNewCategory(e.target.value)}
+      >
+        {categories.map((category) => (
+          <option key={category} value={category}>
+            {category}
+          </option>
+        ))}
+      </select>
+
+      <button type="submit">+ Add Habit</button>
+    </form>
+  );
+}
+
+function HabitList({ habits, toggleHabit, deleteHabit }) {
+  if (habits.length === 0) {
+    return <p className="empty-state">No habits yet. Add your first habit!</p>;
+  }
+
+  return (
+    <div className="habit-list">
+      {habits.map((habit) => {
+        const completed = (habit.completedDates || []).includes(
+          getDateKey()
+        );
+
+        return (
+          <div className="habit-item" key={habit.id}>
+            <button
+              className={`check-button ${completed ? "checked" : ""
+                }`}
+              onClick={() => toggleHabit(habit.id)}
+              title="Mark as completed"
+            >
+              {completed ? "✓" : ""}
+            </button>
+
+            <div className="habit-info">
+              <strong className={completed ? "completed-text" : ""}>
+                {habit.name}
+              </strong>
+
+              <div className="habit-meta">
+                <span className="category-tag">
+                  {habit.category || "Sonstiges"}
+                </span>
+
+                <span>
+                  🔥 {calculateStreak(habit)} day streak
+                </span>
+              </div>
+            </div>
+
+            <span className={`habit-status ${completed ? "done" : ""}`}>
+              {completed ? "Completed" : "Pending"}
+            </span>
+
+            <button
+              className="delete-button"
+              onClick={() => deleteHabit(habit.id)}
+              title="Delete habit"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProgressPanel({ progress, completedToday, totalHabits }) {
+  return (
+    <div className="panel progress-panel">
+      <h2>Today's Progress</h2>
+
+      <div
+        className="progress-circle"
+        style={{
+          background: `conic-gradient(#a78bfa ${progress}%, #29293b ${progress}% 100%)`,
+        }}
+      >
+        <div className="progress-inner">
+          <strong>{progress}%</strong>
+          <span>Completed</span>
+        </div>
+      </div>
+
+      <p>
+        {completedToday} of {totalHabits} habits completed today.
+      </p>
     </div>
   );
 }
